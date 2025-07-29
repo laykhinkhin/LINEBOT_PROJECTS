@@ -1,0 +1,12 @@
+specVersion: "v1"
+serviceId: "linebot_projects"
+location: "asia-east1"
+schema:
+  source: "./schema"
+  datasource:
+    postgresql:
+      database: "linebotID"
+      cloudSql:
+        instanceId: "linebot-emotion-461118"
+      # schemaValidation: "COMPATIBLE"
+connectorDirs: ["./connector"]

@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <title>心情追蹤</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+  <style>
+    body {
+      font-family: "Microsoft JhengHei", sans-serif;
+      background-color: #e6f0fc;
+      margin: 0;
+      padding: 0;
+    }
+    h2 {
+      text-align: center;
+      padding-top: 30px;
+      font-size: 28px;
+    }
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    label {
+      font-weight: bold;
+      display: block;
+      margin-top: 15px;
+    }
+    input {
+      width: 100%;
+      padding: 10px;
+      margin-top: 5px;
+      margin-bottom: 15px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      font-size: 16px;
+    }
+    button {
+      width: 100%;
+      padding: 12px;
+      background-color: #007bff;
+      color: #fff;
+      font-size: 16px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      margin-top: 10px;
+    }
+    button:hover {
+      background-color: #0056b3;
+    }
+    canvas {
+      margin-top: 30px;
+      width: 100%;
+      max-height: 400px;
+    }
+    .record-box {
+      height: 150px;
+      overflow-y: scroll;
+      white-space: pre-wrap;
+      background-color: #ffffffaa;
+      padding: 10px;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+      font-size: 15px;
+    }
+    .care-message {
+      margin-top: 15px;
+      padding: 10px;
+      background-color: #ffe6e6;
+      border-left: 5px solid #ff4d4d;
+      color: #990000;
+      font-weight: bold;
+      border-radius: 6px;
+    }
+    .no-chat-msg {
+      font-style: italic;
+      color: #555;
+      margin-top: 15px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <h2>🧠 心情追蹤</h2>
+  <div class="container">
+    <label>使用者名稱</label>
+    <input type="text" id="username" placeholder="請輸入名稱" />
+
+    <label>起始時間</label>
+    <input type="date" id="startDate" />
+    <label>結束時間</label>
+    <input type="date" id="endDate" />
+
+    <button onclick="getEmotionRecords()">📊 取得情緒紀錄</button>
+
+    <label>訊息紀錄（焦慮指標）</label>
+    <div class="record-box" id="recordBox">[每日指標摘要]</div>
+
+    <div id="careMessage" class="care-message" style="display: none;"></div>
+
+    <canvas id="emotionChart"></canvas>
+
+    <div class="no-chat-msg">⚠️ 本頁為「心情紀錄查詢」，無法與 AI 聊天。</div>
+  </div>
+
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyAZ4ed-_0d7UnqXNm7g7Y8aZOe5605AeM",
+      authDomain: "linebot-emotion-461118.firebaseapp.com",
+      projectId: "linebot-emotion-461118",
+      storageBucket: "linebot-emotion-461118.appspot.com",
+      messagingSenderId: "139946476660",
+      appId: "1:139946476660:web:1234b6eea355f7f4e6bd21"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
+    const startInput = document.getElementById("startDate");
+    const endInput = document.getElementById("endDate");
+    endInput.addEventListener("change", () => {
+      const start = new Date(startInput.value);
+      const end = new Date(endInput.value);
+      const diffDays = (end - start) / (1000 * 60 * 60 * 24);
+      if (diffDays > 6) {
+        alert("❗ 最多只能選擇 7 天的區間");
+        endInput.value = "";
+      }
+    });
+
+    async function getEmotionRecords() {
+      const username = document.getElementById("username").value.trim();
+      const start = new Date(document.getElementById("startDate").value);
+      const end = new Date(document.getElementById("endDate").value);
+      end.setHours(23, 59, 59, 999);
+
+      const recordBox = document.getElementById("recordBox");
+      const careBox = document.getElementById("careMessage");
+      recordBox.innerText = "讀取中...";
+      careBox.style.display = "none";
+
+      try {
+        const response = await fetch("https://your-cloudrun-url/emotion_radar", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, start: start.toISOString(), end: end.toISOString() })
+        });
+        const result = await response.json();
+
+        // 更新紀錄與關懷語
+        recordBox.innerText = result.kpi_summary;
+        careBox.innerText = "💌 " + result.care_message;
+        careBox.style.display = "block";
+
+        // 畫雷達圖
+        drawRadarChart(result.radar_data);
+
+      } catch (err) {
+        recordBox.innerText = "讀取失敗：" + err;
+      }
+    }
+
+    function drawRadarChart(data) {
+      const ctx = document.getElementById("emotionChart").getContext("2d");
+      if (window.myChart) window.myChart.destroy();
+      window.myChart = new Chart(ctx, {
+        type: "radar",
+        data: {
+          labels: ["緊張", "害怕", "不安", "神經質", "不耐煩", "挫敗感"],
+          datasets: [{
+            label: "焦慮指標（-1 ~ 1）",
+            data: data,
+            backgroundColor: "rgba(255,99,132,0.2)",
+            borderColor: "rgba(255,99,132,1)",
+            pointBackgroundColor: "rgba(255,99,132,1)"
+          }]
+        },
+        options: {
+          scales: {
+            r: {
+              suggestedMin: -1,
+              suggestedMax: 1,
+              ticks: {
+                stepSize: 0.5
+              }
+            }
+          }
+        }
+      });
+    }
+  </script>
+</body>
+</html>
+

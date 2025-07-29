@@ -1,0 +1,32 @@
+type User @table {
+  lineUserId: String!
+  createdAt: Timestamp!
+  displayName: String
+}
+
+type EmotionType @table {
+  name: String!
+  description: String
+  emoji: String
+}
+
+type EmotionEntry @table {
+  user: User!
+  emotionType: EmotionType!
+  loggedAt: Timestamp!
+  createdAt: Timestamp!
+  updatedAt: Timestamp
+  notes: String
+  intensity: Int
+}
+
+type Tag @table {
+  name: String!
+  description: String
+}
+
+type EmotionEntryTag @table(key: ["emotionEntry", "tag"]) {
+  emotionEntry: EmotionEntry!
+  tag: Tag!
+  createdAt: Timestamp!
+}
