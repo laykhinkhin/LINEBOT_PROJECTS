@@ -1,55 +1,98 @@
 from flask import Flask, request, jsonify
-import requests
+from flask_cors import CORS
+from google.cloud import firestore
 import os
+import requests
+import datetime
 
 app = Flask(__name__)
+CORS(app)
 
-API_KEY = os.getenv("GEMINI_API_KEY")  # 從 .env 環境變數讀取
+# ✅ 初始化 Firebase
+db = firestore.Client()
 
-@app.route("/care", methods=["POST"])
-def generate_care():
+# ✅ Gemini 分析服務的 URL（來自 env）
+GEMINI_API_URL = os.getenv("GEMINI_API_URL", "http://localhost:5001/analyze-emotion")
+
+@app.route('/get-emotion-summary', methods=['POST'])
+def get_summary():
     data = request.get_json()
-    user_text = data.get("text", "")
-    keywords = data.get("keywords", [])  # 預期為 list
+    user_id = data.get("userId")
+    start_date = data.get("startDate")
+    end_date = data.get("endDate")
 
-    # 關鍵字轉為文字字串顯示
-    keyword_text = "、".join(keywords)
-
-    # 建立 prompt
-    prompt = f"""
-你是一位溫暖且富有同理心的心理陪伴助理。
-請根據以下使用者訊息與其情緒關鍵字，生成一句溫柔、不批判、非制式的關懷語句。
-請勿問問題，語氣要真誠自然，有具體安慰與支持性語言。
-
-使用者訊息：{user_text}
-情緒關鍵字：{keyword_text}
-
-請直接回覆一句安慰語。
-"""
-
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={API_KEY}"
-    headers = { "Content-Type": "application/json" }
-    body = {
-        "contents": [
-            {
-                "parts": [
-                    { "text": prompt }
-                ]
-            }
-        ]
-    }
+    if not user_id or not start_date or not end_date:
+        return jsonify({"error": "userId, startDate, endDate 為必填"}), 400
 
     try:
-        res = requests.post(url, headers=headers, json=body)
-        res.raise_for_status()
-        response_json = res.json()
-        message = response_json["candidates"][0]["content"]["parts"][0]["text"].strip()
-        return jsonify({"message": message})
+        # ✅ 時間區間轉換
+        start = datetime.datetime.strptime(start_date, "%Y-%m-%d")
+        end = datetime.datetime.strptime(end_date, "%Y-%m-%d") + datetime.timedelta(days=1)
+
+        # ✅ Firestore 查詢
+        snapshot = db.collection("messages") \
+            .where("userId", "==", user_id) \
+            .where("timestamp", ">=", start) \
+            .where("timestamp", "<", end) \
+            .stream()
+
+        messages = []
+        summary_list = []
+
+        for doc in snapshot:
+            d = doc.to_dict()
+            msg = d.get("text", "")
+            score = d.get("score", 0.0)
+            timestamp = d.get("timestamp")
+
+            # ✅ timestamp 格式處理
+            if isinstance(timestamp, datetime.datetime):
+                date_str = timestamp.strftime("%Y-%m-%d")
+            else:
+                date_str = ""
+
+            messages.append(msg)
+            summary_list.append({
+                "date": date_str,
+                "score": round(score, 3),
+                "text": msg
+            })
+
+        # ✅ 若無資料
+        if not messages:
+            return jsonify({
+                "scores": {
+                    "緊張": 0, "害怕": 0, "不安": 0,
+                    "神經質": 0, "不耐煩": 0, "挫敗感": 0
+                },
+                "keywords": ["查無資料"],
+                "summary": []
+            })
+
+        # ✅ 呼叫 Gemini API
+        try:
+            res = requests.post(GEMINI_API_URL, json={"messages": messages})
+            res.raise_for_status()
+            gemini_result = res.json()
+        except Exception as e:
+            print("⚠️ Gemini API 呼叫錯誤：", e)
+            gemini_result = {
+                "scores": {
+                    "緊張": 0, "害怕": 0, "不安": 0,
+                    "神經質": 0, "不耐煩": 0, "挫敗感": 0
+                },
+                "keywords": ["Gemini API 呼叫失敗"]
+            }
+
+        return jsonify({
+            "scores": gemini_result.get("scores", {}),
+            "keywords": gemini_result.get("keywords", []),
+            "summary": summary_list
+        })
 
     except Exception as e:
-        print("Gemini error:", e)
-        return jsonify({"message": "你已經很努力了，請記得給自己一點溫柔 ❤️"}), 200
+        print("🔥 get-emotion-summary 失敗：", e)
+        return jsonify({"error": str(e)}), 500
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5002, debug=True)
-
+if __name__ == '__main__':
+    app.run(port=5003)

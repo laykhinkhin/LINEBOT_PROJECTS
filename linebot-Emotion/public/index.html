@@ -2,195 +2,233 @@
 <html lang="zh-Hant">
 <head>
   <meta charset="UTF-8" />
-  <title>心情追蹤</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>心情追蹤系統</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
   <style>
-    body {
-      font-family: "Microsoft JhengHei", sans-serif;
-      background-color: #e6f0fc;
-      margin: 0;
-      padding: 0;
-    }
-    h2 {
-      text-align: center;
-      padding-top: 30px;
-      font-size: 28px;
-    }
-    .container {
-      max-width: 600px;
-      margin: 0 auto;
-      padding: 20px;
-    }
-    label {
-      font-weight: bold;
-      display: block;
-      margin-top: 15px;
-    }
-    input {
-      width: 100%;
-      padding: 10px;
-      margin-top: 5px;
-      margin-bottom: 15px;
-      border: 1px solid #ccc;
-      border-radius: 6px;
-      font-size: 16px;
-    }
-    button {
-      width: 100%;
-      padding: 12px;
-      background-color: #007bff;
-      color: #fff;
-      font-size: 16px;
-      border: none;
-      border-radius: 6px;
-      cursor: pointer;
-      margin-top: 10px;
-    }
-    button:hover {
-      background-color: #0056b3;
-    }
-    canvas {
-      margin-top: 30px;
-      width: 100%;
-      max-height: 400px;
-    }
-    .record-box {
-      height: 150px;
-      overflow-y: scroll;
-      white-space: pre-wrap;
-      background-color: #ffffffaa;
-      padding: 10px;
-      border-radius: 6px;
-      border: 1px solid #ccc;
-      font-size: 15px;
-    }
-    .care-message {
-      margin-top: 15px;
-      padding: 10px;
-      background-color: #ffe6e6;
-      border-left: 5px solid #ff4d4d;
-      color: #990000;
-      font-weight: bold;
-      border-radius: 6px;
-    }
-    .no-chat-msg {
-      font-style: italic;
-      color: #555;
-      margin-top: 15px;
-      text-align: center;
-    }
+    body { font-family: "Microsoft JhengHei", sans-serif; background-color: #f0f2f5; padding: 20px; }
+    .container { max-width: 900px; margin: auto; background: #fff; padding: 30px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+    h2 { text-align: center; }
+    #radarWrapper { width: 420px; height: 420px; margin: 0 auto; display: none; }
+    table { width: 100%; border-collapse: collapse; margin-top: 30px; display: none; }
+    th, td { border: 1px solid #ccc; padding: 10px; text-align: center; }
+    th { background-color: #f5f5f5; }
+    .date-select { text-align: center; margin-bottom: 20px; }
+    input[type="date"] { padding: 8px; margin: 0 10px; }
+    button { padding: 10px 20px; font-size: 16px; margin-top: 10px; }
+    #loading { text-align:center; display:none; }
   </style>
 </head>
 <body>
-  <h2>🧠 心情追蹤</h2>
   <div class="container">
-    <label>使用者名稱</label>
-    <input type="text" id="username" placeholder="請輸入名稱" />
+    <h2>心情追蹤</h2>
 
-    <label>起始時間</label>
-    <input type="date" id="startDate" />
-    <label>結束時間</label>
-    <input type="date" id="endDate" />
+    <div class="date-select">
+      <label>起始日期：<input type="date" id="startDate"></label>
+      <label>結束日期：<input type="date" id="endDate"></input></label>
+      <br/>
+      <button id="fetchBtn">取得資料</button>
+      <p id="dateError" style="color: red; display: none;"></p>
+      <p id="loading">讀取中…</p>
+    </div>
 
-    <button onclick="getEmotionRecords()">📊 取得情緒紀錄</button>
+    <div id="radarWrapper">
+      <canvas id="radarChart"></canvas>
+    </div>
 
-    <label>訊息紀錄（焦慮指標）</label>
-    <div class="record-box" id="recordBox">[每日指標摘要]</div>
+    <h2 id="kpiTitle" style="display:none;">KPI 指標</h2>
+    <table id="kpiTable">
+      <thead>
+        <tr><th>指標</th><th>分數</th><th>狀態</th><th>說明</th></tr>
+      </thead>
+      <tbody id="kpiTableBody"></tbody>
+    </table>
 
-    <div id="careMessage" class="care-message" style="display: none;"></div>
-
-    <canvas id="emotionChart"></canvas>
-
-    <div class="no-chat-msg">⚠️ 本頁為「心情紀錄查詢」，無法與 AI 聊天。</div>
+    <h2 id="summaryTitle" style="display:none;">每日記錄摘要</h2>
+    <table id="summaryTable">
+      <thead>
+        <tr><th>日期</th><th>情緒分數</th><th>內容摘要</th></tr>
+      </thead>
+      <tbody id="summaryBody"></tbody>
+    </table>
   </div>
 
   <script>
-    const firebaseConfig = {
-      apiKey: "AIzaSyAZ4ed-_0d7UnqXNm7g7Y8aZOe5605AeM",
-      authDomain: "linebot-emotion-461118.firebaseapp.com",
-      projectId: "linebot-emotion-461118",
-      storageBucket: "linebot-emotion-461118.appspot.com",
-      messagingSenderId: "139946476660",
-      appId: "1:139946476660:web:1234b6eea355f7f4e6bd21"
-    };
-    firebase.initializeApp(firebaseConfig);
-    const db = firebase.firestore();
+    // ====== 改成你的部署位址 & userId ======
+    const API_BASE = 'https://YOUR-CLOUD-RUN-URL/summary'; // 若同網域可用 '/summary'
+    const USER_ID = 'test-user'; // 改成實際 userId（例如 LINE 的 userId）
 
-    const startInput = document.getElementById("startDate");
-    const endInput = document.getElementById("endDate");
-    endInput.addEventListener("change", () => {
-      const start = new Date(startInput.value);
-      const end = new Date(endInput.value);
-      const diffDays = (end - start) / (1000 * 60 * 60 * 24);
-      if (diffDays > 6) {
-        alert("❗ 最多只能選擇 7 天的區間");
-        endInput.value = "";
+    // ====== 工具：日期格式 yyyy-mm-dd ======
+    const fmt = d => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth()+1).padStart(2,'0');
+      const dd = String(d.getDate()).padStart(2,'0');
+      return `${y}-${m}-${dd}`;
+    };
+
+    // 安全換算「相差天數」（避免 DST 抖動）
+    const diffDays = (start, end) => {
+      const a = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+      const b = new Date(end.getFullYear(),   end.getMonth(),   end.getDate());
+      return Math.floor((b - a) / 86400000); // 0 表示同一天；6 表示 7 天區間
+    };
+
+    const startEl = document.getElementById('startDate');
+    const endEl   = document.getElementById('endDate');
+    const errEl   = document.getElementById('dateError');
+    const loadingEl = document.getElementById('loading');
+    const btn = document.getElementById('fetchBtn');
+
+    // ====== 預設抓「最近 7 天」（含今天），但允許查任何歷史日期 ======
+    (function setDefaultRange() {
+      const today = new Date();
+      const start = new Date(today);
+      start.setDate(today.getDate() - 6); // 7 天區間 => 差 6 天
+      startEl.value = fmt(start);
+      endEl.value   = fmt(today);
+
+      // 允許任何歷史日期（不限制到今天）
+      // 初始同步彼此限制：最多 7 天
+      syncEndBounds();
+      syncStartBounds();
+    })();
+
+    // 當起始日改變：限制結束日 ∈ [起始日, 起始日+6]
+    startEl.addEventListener('change', () => {
+      syncEndBounds();
+      const s = new Date(startEl.value);
+      const e = new Date(endEl.value);
+      if (isNaN(s)) return;
+      if (isNaN(e) || diffDays(s, e) > 6 || diffDays(s, e) < 0) {
+        const newEnd = new Date(s); newEnd.setDate(s.getDate() + 6);
+        endEl.value = fmt(newEnd);
       }
     });
 
-    async function getEmotionRecords() {
-      const username = document.getElementById("username").value.trim();
-      const start = new Date(document.getElementById("startDate").value);
-      const end = new Date(document.getElementById("endDate").value);
-      end.setHours(23, 59, 59, 999);
-
-      const recordBox = document.getElementById("recordBox");
-      const careBox = document.getElementById("careMessage");
-      recordBox.innerText = "讀取中...";
-      careBox.style.display = "none";
-
-      try {
-        const response = await fetch("https://your-cloudrun-url/emotion_radar", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ username, start: start.toISOString(), end: end.toISOString() })
-        });
-        const result = await response.json();
-
-        // 更新紀錄與關懷語
-        recordBox.innerText = result.kpi_summary;
-        careBox.innerText = "💌 " + result.care_message;
-        careBox.style.display = "block";
-
-        // 畫雷達圖
-        drawRadarChart(result.radar_data);
-
-      } catch (err) {
-        recordBox.innerText = "讀取失敗：" + err;
+    // 當結束日改變：限制起始日 ∈ [結束日-6, 結束日]
+    endEl.addEventListener('change', () => {
+      syncStartBounds();
+      const s = new Date(startEl.value);
+      const e = new Date(endEl.value);
+      if (isNaN(e)) return;
+      if (isNaN(s) || diffDays(s, e) > 6 || diffDays(s, e) < 0) {
+        const newStart = new Date(e); newStart.setDate(e.getDate() - 6);
+        startEl.value = fmt(newStart);
       }
+    });
+
+    // 限制 end 可選範圍： [start, start+6]
+    function syncEndBounds() {
+      const s = new Date(startEl.value);
+      if (isNaN(s)) { endEl.min=''; endEl.max=''; return; }
+      const maxEnd = new Date(s); maxEnd.setDate(s.getDate() + 6);
+      endEl.min = fmt(s);
+      endEl.max = fmt(maxEnd); // ✅ 不再用今天當上限
     }
 
-    function drawRadarChart(data) {
-      const ctx = document.getElementById("emotionChart").getContext("2d");
-      if (window.myChart) window.myChart.destroy();
-      window.myChart = new Chart(ctx, {
-        type: "radar",
-        data: {
-          labels: ["緊張", "害怕", "不安", "神經質", "不耐煩", "挫敗感"],
-          datasets: [{
-            label: "焦慮指標（-1 ~ 1）",
-            data: data,
-            backgroundColor: "rgba(255,99,132,0.2)",
-            borderColor: "rgba(255,99,132,1)",
-            pointBackgroundColor: "rgba(255,99,132,1)"
-          }]
-        },
-        options: {
-          scales: {
-            r: {
-              suggestedMin: -1,
-              suggestedMax: 1,
-              ticks: {
-                stepSize: 0.5
-              }
-            }
+    // 限制 start 可選範圍： [end-6, end]
+    function syncStartBounds() {
+      const e = new Date(endEl.value);
+      if (isNaN(e)) { startEl.min=''; startEl.max=''; return; }
+      const minStart = new Date(e); minStart.setDate(e.getDate() - 6);
+      startEl.min = fmt(minStart);
+      startEl.max = fmt(e);
+    }
+
+    let radarChart;
+    btn.addEventListener('click', loadData);
+
+    async function loadData() {
+      const startDate = startEl.value;
+      const endDate   = endEl.value;
+
+      // 驗證：最多 7 天（含端點 => 相差最多 6 天）
+      errEl.style.display = 'none';
+      const s = new Date(startDate);
+      const e = new Date(endDate);
+      const span = diffDays(s, e);
+      if (isNaN(s) || isNaN(e) || span < 0) {
+        errEl.textContent = '請輸入有效的起始與結束日期';
+        errEl.style.display = 'block'; return;
+      }
+      if (span > 6) {
+        errEl.textContent = '最多只能選擇 7 天的範圍';
+        errEl.style.display = 'block'; return;
+      }
+
+      try {
+        loadingEl.style.display = 'block';
+
+        const res = await fetch(`${API_BASE}/get-emotion-summary`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: USER_ID, startDate, endDate })
+        });
+        if (!res.ok) throw new Error('API 回應失敗');
+
+        const data = await res.json();
+        const labels = Object.keys(data.scores || {});
+        const values = Object.values(data.scores || {});
+
+        // 雷達圖
+        document.getElementById('radarWrapper').style.display = 'block';
+        if (radarChart) radarChart.destroy();
+        radarChart = new Chart(document.getElementById('radarChart'), {
+          type: 'radar',
+          data: {
+            labels,
+            datasets: [{
+              label: '情緒指標分數',
+              data: values,
+              fill: true,
+              backgroundColor: 'rgba(75,192,192,0.2)',
+              borderColor: 'rgba(75,192,192,1)',
+              pointBackgroundColor: 'rgba(75,192,192,1)'
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: { r: { min: -1, max: 1, ticks: { stepSize: 0.5 } } },
+            plugins: { legend: { display: false } }
           }
-        }
-      });
+        });
+
+        // KPI 表格
+        document.getElementById('kpiTitle').style.display = 'block';
+        document.getElementById('kpiTable').style.display = 'table';
+        const kpiBody = document.getElementById('kpiTableBody');
+        kpiBody.innerHTML = '';
+        labels.forEach((label, i) => {
+          const val = Number(values[i] ?? 0);
+          const status = Math.abs(val) < 0.4 ? '✅ 正常' : '⚠️ 異常';
+          const remark = Math.abs(val) < 0.4 ? '平穩' : '波動';
+          kpiBody.innerHTML += `<tr>
+            <td>${label}</td><td>${val.toFixed(2)}</td><td>${status}</td><td>${remark}</td>
+          </tr>`;
+        });
+
+        // 每日摘要
+        document.getElementById('summaryTitle').style.display = 'block';
+        document.getElementById('summaryTable').style.display = 'table';
+        const tbody = document.getElementById('summaryBody');
+        tbody.innerHTML = '';
+        (data.summary || []).forEach(item => {
+          tbody.innerHTML += `<tr>
+            <td>${item.date || ''}</td>
+            <td>${(item.score ?? '').toString()}</td>
+            <td>${item.text || ''}</td>
+          </tr>`;
+        });
+
+      } catch (e) {
+        console.error(e);
+        errEl.textContent = '取得資料失敗，請稍後再試';
+        errEl.style.display = 'block';
+      } finally {
+        loadingEl.style.display = 'none';
+      }
     }
   </script>
 </body>
 </html>
-
